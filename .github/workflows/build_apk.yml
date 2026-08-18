@@ -58,7 +58,7 @@ jobs:
           if "android.permission.INTERNET" not in text:
               text = text.replace(
                   '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
-                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\\n' + permissions,
+                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n' + permissions,
               )
 
           queries_block = """
@@ -78,6 +78,41 @@ jobs:
               text = text.replace("</manifest>", queries_block + "</manifest>")
 
           path.write_text(text)
+          PY
+
+      - name: Patch Android compileSdk for plugin compatibility
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          # file_picker's transitive dependency (flutter_plugin_android_lifecycle)
+          # requires compiling against API 36+. Flutter's own default
+          # `flutter.compileSdkVersion` currently resolves lower than that, so
+          # we bump the app module's compileSdk explicitly here -- this runs
+          # AFTER `flutter create` regenerates build.gradle.kts fresh every
+          # time, so it stays self-healing instead of a stale committed file.
+          kts_path = Path("android/app/build.gradle.kts")
+          groovy_path = Path("android/app/build.gradle")
+          path = kts_path if kts_path.exists() else groovy_path
+          text = path.read_text()
+          is_kts = path.suffix == ".kts"
+
+          if is_kts:
+              text, n = re.subn(
+                  r"compileSdk\s*=\s*flutter\.compileSdkVersion",
+                  "compileSdk = maxOf(36, flutter.compileSdkVersion)",
+                  text,
+              )
+          else:
+              text, n = re.subn(
+                  r"compileSdkVersion\s+flutter\.compileSdkVersion",
+                  "compileSdkVersion Math.max(36, flutter.compileSdkVersion as int)",
+                  text,
+              )
+
+          path.write_text(text)
+          print(f"Patched compileSdk in {path} ({n} replacement(s))")
           PY
 
       - name: Patch Android Gradle for core library desugaring
