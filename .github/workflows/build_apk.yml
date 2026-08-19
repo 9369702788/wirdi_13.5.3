@@ -38,78 +38,55 @@ jobs:
           from pathlib import Path
           import re
 
-          # 1. Patch AndroidManifest.xml for Permissions
-          manifest_path = Path("android/app/src/main/AndroidManifest.xml")
-          if manifest_path.exists():
-              text = manifest_path.read_text()
-              permissions = """
-                  <uses-permission android:name="android.permission.INTERNET" />
-                  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-                  <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-                  <uses-permission android:name="android.permission.VIBRATE" />
-                  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-                  <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-                  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-              """
+          # 1. Patch AndroidManifest.xml
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          if manifest.exists():
+              text = manifest.read_text()
               if "android.permission.INTERNET" not in text:
-                  text = text.replace(
-                      '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
-                      '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n' + permissions,
-                  )
-              queries = """
-                  <queries>
-                      <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="https" /></intent>
-                      <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="geo" /></intent>
-                  </queries>
-              """
+                  perms = '\n    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.VIBRATE" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />'
+                  text = text.replace('<manifest xmlns:android="http://schemas.android.com/apk/res/android">', '<manifest xmlns:android="http://schemas.android.com/apk/res/android">' + perms)
               if "<queries>" not in text:
-                  text = text.replace("</manifest>", queries + "</manifest>")
-              manifest_path.write_text(text)
+                  queries = '\n    <queries><intent><action android:name="android.intent.action.VIEW" /><data android:scheme="https" /></intent><intent><action android:name="android.intent.action.VIEW" /><data android:scheme="geo" /></intent></queries>'
+                  text = text.replace("</manifest>", queries + "\n</manifest>")
+              manifest.write_text(text)
 
-          # 2. Patch app/build.gradle (SDK 36 + Desugaring)
-          gradle_path = Path("android/app/build.gradle")
-          if not gradle_path.exists():
-              gradle_path = Path("android/app/build.gradle.kts")
+          # 2. Patch App build.gradle (Force SDK 36 + Desugaring)
+          app_gradle = Path("android/app/build.gradle")
+          if not app_gradle.exists(): app_gradle = Path("android/app/build.gradle.kts")
           
-          if gradle_path.exists():
-              text = gradle_path.read_text()
-              is_kts = gradle_path.suffix == ".kts"
+          if app_gradle.exists():
+              content = app_gradle.read_text()
+              is_kts = app_gradle.suffix == ".kts"
               
               # Force compileSdk 36
-              text = re.sub(r'compileSdk\s*=\s*.*', 'compileSdk = 36', text)
-              text = re.sub(r'compileSdkVersion\s*.*', 'compileSdkVersion 36', text)
+              content = re.sub(r'compileSdk\s*=\s*\d+', 'compileSdk = 36', content)
+              content = re.sub(r'compileSdkVersion\s*\d+', 'compileSdkVersion 36', content)
               
-              # Enable Desugaring
-              if "isCoreLibraryDesugaringEnabled" not in text and "coreLibraryDesugaringEnabled" not in text:
-                  flag = "isCoreLibraryDesugaringEnabled = true" if is_kts else "coreLibraryDesugaringEnabled true"
-                  text = text.replace("compileOptions {", "compileOptions {\n        " + flag, 1)
+              # Enable Desugaring flag
+              if "compileOptions {" in content:
+                  if "DesugaringEnabled" not in content:
+                      flag = "isCoreLibraryDesugaringEnabled = true" if is_kts else "coreLibraryDesugaringEnabled true"
+                      content = content.replace("compileOptions {", f"compileOptions {{\n        {flag}", 1)
               
-              if "coreLibraryDesugaring" not in text:
+              # Add Desugaring Library (Append to end of file to be safe)
+              if "coreLibraryDesugaring" not in content:
                   dep = 'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")' if is_kts else "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'"
-                  text = text.replace("dependencies {", "dependencies {\n    " + dep, 1)
+                  content += f"\ndependencies {{\n    {dep}\n}}\n"
               
-              gradle_path.write_text(text)
+              app_gradle.write_text(content)
 
-          # 3. Patch root build.gradle (Force ALL plugins to SDK 36)
+          # 3. Patch Root build.gradle (Force all plugins to SDK 36)
           root_gradle = Path("android/build.gradle")
           if root_gradle.exists():
               root_text = root_gradle.read_text()
-              override = """
-          subprojects {
-              afterEvaluate { project ->
-                  if (project.hasProperty('android')) {
-                      project.android {
-                          compileSdkVersion 36
-                          buildToolsVersion "36.0.0"
-                      }
-                  }
-              }
-          }
-          """
               if "subprojects {" not in root_text:
+                  override = "\nsubprojects { afterEvaluate { project -> if (project.hasProperty('android')) { project.android { compileSdkVersion 36; buildToolsVersion '36.0.0' } } } }\n"
                   root_text += override
                   root_gradle.write_text(root_text)
           PY
+
+      - name: Debug - Show Patched Gradle
+        run: cat android/app/build.gradle || cat android/app/build.gradle.kts
 
       - name: Install dependencies
         run: flutter pub get
