@@ -1,5 +1,6 @@
 import 'package:home_widget/home_widget.dart';
 import '../models/hadith_models.dart';
+import '../models/prayer_models.dart';
 
 class WidgetService {
   WidgetService._();

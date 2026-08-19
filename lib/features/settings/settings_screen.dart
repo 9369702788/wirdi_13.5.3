@@ -1,13 +1,27 @@
+import '../../core/services/backup_service.dart';
 import 'dart:async';
+
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart' hide TextDirection;
+
+import '../../core/data/app_sources.dart';
+import '../../core/data/adhan_option.dart';
 import '../../core/services/audio_download_service.dart';
 import '../../core/services/azkar_repository.dart';
+import '../../core/services/notification_service.dart';
+import '../../core/services/prayer_display.dart';
+import '../../core/services/daily_reminder_scheduler.dart';
 import '../../core/services/quran_repository.dart';
 import '../../core/services/settings_service.dart';
 import '../../core/services/user_progress_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../l10n/generated/app_localizations.dart';
+import 'about_screen.dart';
+import 'privacy_center_screen.dart';
+import 'privacy_policy_screen.dart';
+import 'sources_licenses_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -17,6 +31,9 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  int _wirdTarget = 5;
+  final AudioPlayer _previewPlayer = AudioPlayer();
+  String? _previewingAdhanId;
   DateTime? _quranCachedAt;
   DateTime? _azkarCachedAt;
   int _downloadedAudioBytes = 0;
@@ -24,13 +41,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    _loadWirdTarget();
     _loadCacheInfo();
     _loadDownloadedAudioSize();
+    _previewPlayer.onPlayerComplete.listen((_) {
+      if (mounted) setState(() => _previewingAdhanId = null);
+    });
   }
 
   Future<void> _loadDownloadedAudioSize() async {
     final bytes = await AudioDownloadService.totalStorageUsedBytes();
-    if (context.mounted) setState(() => _downloadedAudioBytes = bytes);
+    if (mounted) setState(() => _downloadedAudioBytes = bytes);
   }
 
   String _downloadedAudioSize(AppLocalizations l10n) {
@@ -58,10 +79,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  @override
+  void dispose() {
+    _previewPlayer.dispose();
+    super.dispose();
+  }
+
+  Future<void> _togglePreviewAdhan(AdhanOption option) async {
+    if (_previewingAdhanId == option.id) {
+      try {
+        await _previewPlayer.stop();
+      } catch (_) {
+        // Nothing loaded — fine.
+      }
+      setState(() => _previewingAdhanId = null);
+      return;
+    }
+
+    setState(() => _previewingAdhanId = option.id);
+    try {
+      try {
+        await _previewPlayer.stop();
+      } catch (_) {
+        // Nothing loaded yet — expected on first preview, safe to ignore.
+      }
+      await _previewPlayer.play(UrlSource(option.url));
+    } catch (e) {
+      if (mounted) {
+        setState(() => _previewingAdhanId = null);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(AppLocalizations.of(context).settingsPreviewFailed)),
+        );
+      }
+    }
+  }
+
   Future<void> _loadCacheInfo() async {
     final quranAt = await QuranRepository.cachedAt();
     final azkarAt = await AzkarRepository.cachedAt();
-    if (context.mounted) {
+    if (mounted) {
       setState(() {
         _quranCachedAt = quranAt;
         _azkarCachedAt = azkarAt;
@@ -71,7 +127,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   String _formatCacheDate(DateTime? date, String languageCode, AppLocalizations l10n) {
     if (date == null) return l10n.settingsNotDownloadedYet;
+    // Falls back to 'en' formatting for locales without an intl date
+    // pattern registered (all four we ship are registered in main.dart).
     return DateFormat('d MMMM y, h:mm a', languageCode).format(date);
+  }
+
+  Future<void> _loadWirdTarget() async {
+    final target = await UserProgressService.dailyWirdTarget();
+    if (mounted) setState(() => _wirdTarget = target);
+  }
+
+  Future<void> _setWirdTarget(int value) async {
+    if (value < 1) return;
+    await UserProgressService.setDailyWirdTarget(value);
+    setState(() => _wirdTarget = value);
   }
 
   Future<void> _confirmClearData() async {
@@ -94,7 +163,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (confirmed == true) {
       await UserProgressService.clearAllLocalData();
       await appSettings.load();
-      if (context.mounted) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(l10n.settingsLocalDataDeleted)),
         );
@@ -157,8 +226,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
-                        title: Text(l10n.settingsTajweedColoring),
-                        subtitle: Text(l10n.settingsTajweedColoringSubtitle),
+                        title: const Text('Tajweed Coloring'),
+                        subtitle: const Text('Color Quranic text based on Tajweed rules'),
                         value: appSettings.showTajweedColoring,
                         activeTrackColor: AppColors.primaryEmerald,
                         onChanged: (value) => appSettings.setShowTajweedColoring(value),
@@ -180,14 +249,273 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 }[appSettings.explicitLocale!.languageCode] ?? '',
                           style: const TextStyle(color: AppColors.mutedText),
                         ),
-                        onTap: () => _showLanguageSheet(context, l10n),
+                        onTap: () async {
+                          // Bottom sheet result convention: since both "no
+                          // selection" (dismissed) and "System default"
+                          // (explicit null choice) return null from
+                          // showModalBottomSheet, we re-open with a
+                          // dedicated picker rather than relying on that
+                          // return value directly — see _showLanguageSheet.
+                          await _showLanguageSheet(context, l10n);
+                        },
                       ),
                     ],
                   ),
                 ),
               ),
               const SizedBox(height: 20),
-              _SectionLabel(l10n.settingsDataManagement),
+
+              _SectionLabel(l10n.settingsPrayerReminder),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(l10n.settingsRemindMeFor, style: const TextStyle(fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 4),
+                      ...AppSettings.remindablePrayerKeys.map((prayerKey) {
+                        return SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(prayerDisplayName(l10n, prayerKey)),
+                          value: appSettings.isPrayerReminderEnabledFor(prayerKey),
+                          activeTrackColor: AppColors.primaryEmerald,
+                          onChanged: (value) async {
+                            await appSettings.setPrayerReminderEnabledFor(prayerKey, value);
+                            if (value) {
+                              unawaited(NotificationService.requestPermission());
+                            }
+                          },
+                        );
+                      }),
+                      if (appSettings.prayerReminderEnabled) ...[
+                        const Divider(height: 24),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(l10n.settingsNotifyAtPrayerTime),
+                          subtitle: Text(l10n.settingsNotifyAtPrayerTimeSubtitle),
+                          value: appSettings.notifyAtPrayerTime,
+                          activeTrackColor: AppColors.primaryEmerald,
+                          onChanged: (value) => appSettings.setNotifyAtPrayerTime(value),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(l10n.settingsPrayerReminderMinutesBefore, style: const TextStyle(fontWeight: FontWeight.w700)),
+                        Slider(
+                          value: appSettings.prayerReminderMinutesBefore.toDouble(),
+                          min: 0,
+                          max: 30,
+                          divisions: 6,
+                          label: appSettings.prayerReminderMinutesBefore == 0
+                              ? l10n.settingsReminderOff
+                              : l10n.settingsPrayerReminderMinutesLabel(appSettings.prayerReminderMinutesBefore),
+                          onChanged: (value) => appSettings.setPrayerReminderMinutesBefore(value.round()),
+                        ),
+                        const SizedBox(height: 8),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(l10n.settingsPostPrayerReminder),
+                          subtitle: Text(l10n.settingsPostPrayerReminderSubtitle),
+                          value: appSettings.postPrayerReminderEnabled,
+                          activeTrackColor: AppColors.primaryEmerald,
+                          onChanged: (value) => appSettings.setPostPrayerReminderEnabled(value),
+                        ),
+                        if (appSettings.postPrayerReminderEnabled) ...[
+                          const SizedBox(height: 4),
+                          Slider(
+                            value: appSettings.postPrayerReminderMinutesAfter.toDouble(),
+                            min: 10,
+                            max: 60,
+                            divisions: 5,
+                            label: l10n.settingsPostPrayerReminderMinutesLabel(appSettings.postPrayerReminderMinutesAfter),
+                            onChanged: (value) => appSettings.setPostPrayerReminderMinutesAfter(value.round()),
+                          ),
+                        ],
+                        const SizedBox(height: 8),
+                        Text(l10n.settingsPrayerReminderMethod, style: const TextStyle(fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 8),
+                        SegmentedButton<String>(
+                          segments: [
+                            ButtonSegment(value: 'banner', label: Text(l10n.settingsReminderBanner), icon: const Icon(Icons.notifications_outlined)),
+                            ButtonSegment(value: 'beep', label: Text(l10n.settingsReminderBeep), icon: const Icon(Icons.volume_up_outlined)),
+                            ButtonSegment(value: 'adhan', label: Text(l10n.settingsReminderAdhan), icon: const Icon(Icons.campaign_outlined)),
+                          ],
+                          selected: {appSettings.prayerReminderMode},
+                          onSelectionChanged: (set) => appSettings.setPrayerReminderMode(set.first),
+                        ),
+                        if (appSettings.prayerReminderMode == 'beep') ...[
+                          const SizedBox(height: 8),
+                          OutlinedButton.icon(
+                            onPressed: () => SystemSound.play(SystemSoundType.alert),
+                            icon: const Icon(Icons.volume_up_outlined),
+                            label: Text(l10n.settingsTestTone),
+                          ),
+                        ],
+                        if (appSettings.prayerReminderMode == 'adhan') ...[
+                          const SizedBox(height: 12),
+                          Text(l10n.settingsAdhanSound, style: const TextStyle(fontWeight: FontWeight.w700)),
+                          const SizedBox(height: 6),
+                          Column(
+                            children: AppSources.adhanOptions.map((option) {
+                              final isSelected = appSettings.adhanId == option.id;
+                              final isPreviewing = _previewingAdhanId == option.id;
+                              return RadioListTile<String>(
+                                contentPadding: EdgeInsets.zero,
+                                value: option.id,
+                                groupValue: appSettings.adhanId,
+                                activeColor: AppColors.primaryEmerald,
+                                title: Text(option.displayNameFor(languageCode)),
+                                onChanged: (value) {
+                                  if (value != null) appSettings.setAdhanId(value);
+                                },
+                                secondary: IconButton(
+                                  tooltip: isPreviewing ? l10n.settingsStopPreview : l10n.settingsListen,
+                                  icon: Icon(
+                                    isPreviewing ? Icons.stop_circle_outlined : Icons.play_circle_outline,
+                                    color: isSelected ? AppColors.primaryEmerald : AppColors.mutedText,
+                                  ),
+                                  onPressed: () => _togglePreviewAdhan(option),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ],
+                        const SizedBox(height: 8),
+                        Text(
+                          l10n.settingsReminderNote,
+                          style: const TextStyle(fontSize: 12, color: AppColors.mutedText),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              _SectionLabel(l10n.settingsMoreReminders),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _DailyReminderTile(
+                        reminderKey: 'friday',
+                        title: l10n.settingsFridayReminder,
+                        subtitle: l10n.settingsFridayReminderSubtitle,
+                      ),
+                      const Divider(height: 24),
+                      _DailyReminderTile(
+                        reminderKey: 'morningAzkar',
+                        title: l10n.settingsMorningAzkarReminder,
+                        subtitle: l10n.settingsMorningAzkarReminderSubtitle,
+                      ),
+                      const Divider(height: 24),
+                      _DailyReminderTile(
+                        reminderKey: 'eveningAzkar',
+                        title: l10n.settingsEveningAzkarReminder,
+                        subtitle: l10n.settingsEveningAzkarReminderSubtitle,
+                      ),
+                      const Divider(height: 24),
+                      _DailyReminderTile(
+                        reminderKey: 'dailyWird',
+                        title: l10n.settingsDailyWirdReminder,
+                        subtitle: l10n.settingsDailyWirdReminderSubtitle,
+                      ),
+                      const Divider(height: 24),
+                      _DailyReminderTile(
+                        reminderKey: 'sleepAzkar',
+                        title: l10n.settingsSleepAzkarReminder,
+                        subtitle: l10n.settingsSleepAzkarReminderSubtitle,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              _SectionLabel(l10n.settingsDailyWird),
+              Card(
+                child: ListTile(
+                  title: Text(l10n.settingsDailyWirdTarget),
+                  subtitle: Text(l10n.settingsDailyWirdPerDay(_wirdTarget)),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(tooltip: l10n.commonDecreaseTooltip, onPressed: () => _setWirdTarget(_wirdTarget - 1), icon: const Icon(Icons.remove_circle_outline)),
+                      IconButton(tooltip: l10n.commonIncreaseTooltip, onPressed: () => _setWirdTarget(_wirdTarget + 1), icon: const Icon(Icons.add_circle_outline)),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              _SectionLabel(l10n.settingsAboutSupport),
+              Card(
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.info_outline),
+                      title: Text(l10n.settingsAbout),
+                      trailing: const Icon(Icons.chevron_left),
+                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AboutScreen())),
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.source_outlined),
+                      title: Text(l10n.settingsSourcesLicenses),
+                      trailing: const Icon(Icons.chevron_left),
+                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SourcesLicensesScreen())),
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.privacy_tip_outlined),
+                      title: Text(l10n.settingsPrivacyPolicy),
+                      trailing: const Icon(Icons.chevron_left),
+                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PrivacyPolicyScreen())),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              _SectionLabel(l10n.settingsPrivacyCenter),
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.shield_outlined, color: AppColors.primaryEmerald),
+                  title: Text(l10n.settingsPrivacyCenter),
+                  subtitle: Text(l10n.settingsPrivacyCenterSubtitle),
+                  trailing: const Icon(Icons.chevron_left, color: AppColors.mutedText),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PrivacyCenterScreen())),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+                            _SectionLabel('Backup & Restore'),
+              Card(
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.cloud_upload_outlined, color: AppColors.primaryEmerald),
+                      title: const Text('Export Backup'),
+                      subtitle: const Text('Save your progress and settings to a file'),
+                      onTap: () => BackupService.exportBackup(),
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.cloud_download_outlined, color: AppColors.primaryEmerald),
+                      title: const Text('Import Backup'),
+                      subtitle: const Text('Restore data from a previously saved file'),
+                      onTap: () async {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Select your wirdi_backup.json file to restore.')),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+_SectionLabel(l10n.settingsDataManagement),
               Card(
                 child: Column(
                   children: [
@@ -211,7 +539,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         await QuranRepository.load(forceRefresh: true);
                         await AzkarRepository.load(forceRefresh: true);
                         await _loadCacheInfo();
-                        if (context.mounted) {
+                        if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(content: Text(l10n.settingsDataUpdated)),
                           );
@@ -255,7 +583,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         );
                         if (confirmed == true) {
                           await UserProgressService.resetKhatmaProgress();
-                          if (context.mounted) {
+                          if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(content: Text(l10n.settingsKhatmaResetDone)),
                             );
@@ -279,13 +607,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  /// Shows the language picker sheet and applies the choice. Uses a
+  /// dedicated "was it dismissed or was System default tapped" signal
+  /// (a sentinel Locale) since both map to `null` from Navigator.pop
+  /// otherwise.
   Future<void> _showLanguageSheet(BuildContext context, AppLocalizations l10n) async {
     String nameFor(Locale locale) {
       switch (locale.languageCode) {
-        case 'ar': return l10n.languageName_ar;
-        case 'de': return l10n.languageName_de;
-        case 'tr': return l10n.languageName_tr;
-        default: return l10n.languageName_en;
+        case 'ar':
+          return l10n.languageName_ar;
+        case 'de':
+          return l10n.languageName_de;
+        case 'tr':
+          return l10n.languageName_tr;
+        default:
+          return l10n.languageName_en;
       }
     }
 
@@ -293,7 +629,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context,
       showDragHandle: true,
       builder: (sheetContext) {
-        final currentLocale = appSettings.explicitLocale;
         return SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -305,17 +640,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: Text(l10n.settingsLanguage, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
                 ),
               ),
-              RadioListTile<String?>(
-                value: null,
-                groupValue: currentLocale?.languageCode,
+              RadioListTile<bool>(
+                value: true,
+                groupValue: appSettings.explicitLocale == null,
                 activeColor: AppColors.primaryEmerald,
                 title: Text(l10n.settingsLanguageSystem),
                 onChanged: (_) => Navigator.pop(sheetContext, const Locale('system')),
               ),
               for (final locale in AppSettings.supportedLocales)
-                RadioListTile<String>(
-                  value: locale.languageCode,
-                  groupValue: currentLocale?.languageCode,
+                RadioListTile<bool>(
+                  value: true,
+                  groupValue: appSettings.explicitLocale?.languageCode == locale.languageCode,
                   activeColor: AppColors.primaryEmerald,
                   title: Text(nameFor(locale)),
                   onChanged: (_) => Navigator.pop(sheetContext, locale),
@@ -327,9 +662,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       },
     );
 
-    if (choice == null) return;
+    if (choice == null) return; // sheet dismissed without a tap
     if (choice.languageCode == 'system') {
-      await appSettings.setLocale(null);
+      await appSettings.setLocale(null); // "System default"
     } else {
       await appSettings.setLocale(choice);
     }
@@ -344,7 +679,69 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
-      child: Text(text, style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.mutedText, fontSize: 13)),
+      child: Text(
+        text,
+        style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.mutedText, fontSize: 13),
+      ),
+    );
+  }
+}
+
+
+class _DailyReminderTile extends StatelessWidget {
+  final String reminderKey;
+  final String title;
+  final String subtitle;
+  const _DailyReminderTile({required this.reminderKey, required this.title, required this.subtitle});
+
+  String _formatTime(BuildContext context, int hour, int minute) {
+    return TimeOfDay(hour: hour, minute: minute).format(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final setting = appSettings.dailyReminder(reminderKey);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text(title),
+          subtitle: Text(subtitle),
+          value: setting.enabled,
+          activeTrackColor: AppColors.primaryEmerald,
+          onChanged: (value) async {
+            final l10n = AppLocalizations.of(context);
+            await appSettings.setDailyReminder(reminderKey, setting.copyWith(enabled: value));
+            unawaited(DailyReminderScheduler.rescheduleAll(l10n));
+            if (value) {
+              unawaited(NotificationService.requestPermission());
+            }
+          },
+        ),
+        if (setting.enabled)
+          Padding(
+            padding: const EdgeInsets.only(left: 16, bottom: 4),
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                final picked = await showTimePicker(
+                  context: context,
+                  initialTime: TimeOfDay(hour: setting.hour, minute: setting.minute),
+                );
+                if (picked == null) return;
+                if (!context.mounted) return;
+                final l10n = AppLocalizations.of(context);
+                await appSettings.setDailyReminder(
+                  reminderKey,
+                  setting.copyWith(hour: picked.hour, minute: picked.minute),
+                );
+                unawaited(DailyReminderScheduler.rescheduleAll(l10n));
+              },
+              icon: const Icon(Icons.access_time_outlined),
+              label: Text(_formatTime(context, setting.hour, setting.minute)),
+            ),
+          ),
+      ],
     );
   }
 }
