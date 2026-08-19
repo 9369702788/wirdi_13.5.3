@@ -5,9 +5,7 @@ on:
     branches:
       - main
       - master
-
   pull_request:
-
   workflow_dispatch:
 
 jobs:
@@ -31,19 +29,16 @@ jobs:
           channel: stable
           cache: false
 
-      - name: Flutter doctor
-        run: flutter doctor -v
-
       - name: Generate Android platform folder
         run: flutter create --platforms=android --org com.wirdi --project-name wirdi .
 
-      - name: Create patch script
+      - name: Patch Android Files
         run: |
-          cat <<'EOF' > patch_android.py
+          python3 - <<'PY'
           from pathlib import Path
           import re
 
-          # 1. Patch Permissions
+          # 1. Patch AndroidManifest.xml for Permissions
           manifest_path = Path("android/app/src/main/AndroidManifest.xml")
           if manifest_path.exists():
               text = manifest_path.read_text()
@@ -61,50 +56,45 @@ jobs:
                       '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
                       '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n' + permissions,
                   )
-              queries_block = """
+              queries = """
                   <queries>
-                      <intent>
-                          <action android:name="android.intent.action.VIEW" />
-                          <data android:scheme="https" />
-                      </intent>
-                      <intent>
-                          <action android:name="android.intent.action.VIEW" />
-                          <data android:scheme="geo" />
-                      </intent>
+                      <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="https" /></intent>
+                      <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="geo" /></intent>
                   </queries>
               """
               if "<queries>" not in text:
-                  text = text.replace("</manifest>", queries_block + "</manifest>")
+                  text = text.replace("</manifest>", queries + "</manifest>")
               manifest_path.write_text(text)
 
-          # 2. Patch app build.gradle
-          kts_path = Path("android/app/build.gradle.kts")
-          groovy_path = Path("android/app/build.gradle")
-          path = kts_path if kts_path.exists() else groovy_path
-          if path.exists():
-              text = path.read_text()
-              is_kts = path.suffix == ".kts"
+          # 2. Patch app/build.gradle (SDK 36 + Desugaring)
+          gradle_path = Path("android/app/build.gradle")
+          if not gradle_path.exists():
+              gradle_path = Path("android/app/build.gradle.kts")
+          
+          if gradle_path.exists():
+              text = gradle_path.read_text()
+              is_kts = gradle_path.suffix == ".kts"
+              
+              # Force compileSdk 36
               text = re.sub(r'compileSdk\s*=\s*.*', 'compileSdk = 36', text)
               text = re.sub(r'compileSdkVersion\s*.*', 'compileSdkVersion 36', text)
-              if "DesugaringEnabled" not in text:
-                  flag = "        isCoreLibraryDesugaringEnabled = true" if is_kts else "        coreLibraryDesugaringEnabled true"
-                  if "compileOptions {" in text:
-                      text = text.replace("compileOptions {", "compileOptions {\n" + flag, 1)
-                  else:
-                      text = text.replace("android {", "android {\n    compileOptions {\n" + flag + "\n    }", 1)
+              
+              # Enable Desugaring
+              if "isCoreLibraryDesugaringEnabled" not in text and "coreLibraryDesugaringEnabled" not in text:
+                  flag = "isCoreLibraryDesugaringEnabled = true" if is_kts else "coreLibraryDesugaringEnabled true"
+                  text = text.replace("compileOptions {", "compileOptions {\n        " + flag, 1)
+              
               if "coreLibraryDesugaring" not in text:
-                  dep = '    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")' if is_kts else "    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'"
-                  if "dependencies {" in text:
-                      text = text.replace("dependencies {", "dependencies {\n    " + dep, 1)
-                  else:
-                      text += "\ndependencies {\n" + dep + "\n}\n"
-              path.write_text(text)
+                  dep = 'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")' if is_kts else "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'"
+                  text = text.replace("dependencies {", "dependencies {\n    " + dep, 1)
+              
+              gradle_path.write_text(text)
 
-          # 3. Patch root build.gradle (Nuclear Fix)
-          root_path = Path("android/build.gradle")
-          if root_path.exists():
-              root_text = root_path.read_text()
-              override_block = """
+          # 3. Patch root build.gradle (Force ALL plugins to SDK 36)
+          root_gradle = Path("android/build.gradle")
+          if root_gradle.exists():
+              root_text = root_gradle.read_text()
+              override = """
           subprojects {
               afterEvaluate { project ->
                   if (project.hasProperty('android')) {
@@ -117,29 +107,12 @@ jobs:
           }
           """
               if "subprojects {" not in root_text:
-                  root_text += override_block
-                  root_path.write_text(root_text)
-          EOF
-
-      - name: Run patch script
-        run: python3 patch_android.py
-
-      - name: Clear Flutter Cache
-        run: |
-          flutter pub cache clean --force || true
-
-      - name: Remove Old Lock File
-        run: |
-          rm -f pubspec.lock
+                  root_text += override
+                  root_gradle.write_text(root_text)
+          PY
 
       - name: Install dependencies
         run: flutter pub get
-
-      - name: Show Dependencies
-        run: flutter pub deps
-
-      - name: Analyze
-        run: flutter analyze || true
 
       - name: Build debug APK
         run: flutter build apk --debug
@@ -149,4 +122,3 @@ jobs:
         with:
           name: wirdi-debug-apk
           path: build/app/outputs/flutter-apk/app-debug.apk
-          if-no-files-found: error
