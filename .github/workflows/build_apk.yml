@@ -41,11 +41,9 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
           path = Path("android/app/src/main/AndroidManifest.xml")
           text = path.read_text()
-
-          permissions = """
+          permissions = \"\"\"
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
               <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -53,15 +51,13 @@ jobs:
               <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
               <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
               <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-          """
-
+          \"\"\"
           if "android.permission.INTERNET" not in text:
               text = text.replace(
                   '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
                   '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\\n' + permissions,
               )
-
-          queries_block = """
+          queries_block = \"\"\"
               <queries>
                   <intent>
                       <action android:name="android.intent.action.VIEW" />
@@ -72,15 +68,13 @@ jobs:
                       <data android:scheme="geo" />
                   </intent>
               </queries>
-          """
-
+          \"\"\"
           if "<queries>" not in text:
               text = text.replace("</manifest>", queries_block + "</manifest>")
-
           path.write_text(text)
           PY
 
-- name: Patch Android Gradle for SDK 36 and desugaring
+      - name: Patch Android Gradle for SDK 36 and desugaring
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -102,26 +96,17 @@ jobs:
           if "DesugaringEnabled" not in text:
               flag = "        isCoreLibraryDesugaringEnabled = true" if is_kts else "        coreLibraryDesugaringEnabled true"
               if "compileOptions {" in text:
-                  text = text.replace("compileOptions {", "compileOptions {
-" + flag, 1)
+                  text = text.replace("compileOptions {", "compileOptions {\n" + flag, 1)
               else:
-                  text = text.replace("android {", "android {
-    compileOptions {
-" + flag + "
-    }", 1)
+                  text = text.replace("android {", "android {\n    compileOptions {\n" + flag + "\n    }", 1)
 
           # 3. Add desugaring dependency
           if "coreLibraryDesugaring" not in text:
               dep = '    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")' if is_kts else "    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'"
               if "dependencies {" in text:
-                  text = text.replace("dependencies {", "dependencies {
-" + dep, 1)
+                  text = text.replace("dependencies {", "dependencies {\n    " + dep, 1)
               else:
-                  text += "
-dependencies {
-" + dep + "
-}
-"
+                  text += "\ndependencies {\n    " + dep + "\n}\n"
           
           path.write_text(text)
           PY
