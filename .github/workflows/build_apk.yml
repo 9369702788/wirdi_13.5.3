@@ -37,98 +37,92 @@ jobs:
       - name: Generate Android platform folder
         run: flutter create --platforms=android --org com.wirdi --project-name wirdi .
 
-      - name: Patch Android permissions
+      - name: Create patch script
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path("android/app/src/main/AndroidManifest.xml")
-          text = path.read_text()
-          permissions = """
-              <uses-permission android:name="android.permission.INTERNET" />
-              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-              <uses-permission android:name="android.permission.VIBRATE" />
-              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-              <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-              <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-          """
-          if "android.permission.INTERNET" not in text:
-              text = text.replace(
-                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
-                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n' + permissions,
-              )
-          queries_block = """
-              <queries>
-                  <intent>
-                      <action android:name="android.intent.action.VIEW" />
-                      <data android:scheme="https" />
-                  </intent>
-                  <intent>
-                      <action android:name="android.intent.action.VIEW" />
-                      <data android:scheme="geo" />
-                  </intent>
-              </queries>
-          """
-          if "<queries>" not in text:
-              text = text.replace("</manifest>", queries_block + "</manifest>")
-          path.write_text(text)
-          PY
-
-      - name: Patch Android Gradle for SDK 36 and desugaring
-        run: |
-          python3 - <<'PY'
+          cat <<'EOF' > patch_android.py
           from pathlib import Path
           import re
 
-          # 1. Patch app build.gradle
+          # 1. Patch Permissions
+          manifest_path = Path("android/app/src/main/AndroidManifest.xml")
+          if manifest_path.exists():
+              text = manifest_path.read_text()
+              permissions = """
+                  <uses-permission android:name="android.permission.INTERNET" />
+                  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+                  <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+                  <uses-permission android:name="android.permission.VIBRATE" />
+                  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+                  <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+                  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+              """
+              if "android.permission.INTERNET" not in text:
+                  text = text.replace(
+                      '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
+                      '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n' + permissions,
+                  )
+              queries_block = """
+                  <queries>
+                      <intent>
+                          <action android:name="android.intent.action.VIEW" />
+                          <data android:scheme="https" />
+                      </intent>
+                      <intent>
+                          <action android:name="android.intent.action.VIEW" />
+                          <data android:scheme="geo" />
+                      </intent>
+                  </queries>
+              """
+              if "<queries>" not in text:
+                  text = text.replace("</manifest>", queries_block + "</manifest>")
+              manifest_path.write_text(text)
+
+          # 2. Patch app build.gradle
           kts_path = Path("android/app/build.gradle.kts")
           groovy_path = Path("android/app/build.gradle")
           path = kts_path if kts_path.exists() else groovy_path
-          text = path.read_text()
-          is_kts = path.suffix == ".kts"
+          if path.exists():
+              text = path.read_text()
+              is_kts = path.suffix == ".kts"
+              text = re.sub(r'compileSdk\s*=\s*.*', 'compileSdk = 36', text)
+              text = re.sub(r'compileSdkVersion\s*.*', 'compileSdkVersion 36', text)
+              if "DesugaringEnabled" not in text:
+                  flag = "        isCoreLibraryDesugaringEnabled = true" if is_kts else "        coreLibraryDesugaringEnabled true"
+                  if "compileOptions {" in text:
+                      text = text.replace("compileOptions {", "compileOptions {\n" + flag, 1)
+                  else:
+                      text = text.replace("android {", "android {\n    compileOptions {\n" + flag + "\n    }", 1)
+              if "coreLibraryDesugaring" not in text:
+                  dep = '    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")' if is_kts else "    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'"
+                  if "dependencies {" in text:
+                      text = text.replace("dependencies {", "dependencies {\n    " + dep, 1)
+                  else:
+                      text += "\ndependencies {\n" + dep + "\n}\n"
+              path.write_text(text)
 
-          # Force compileSdk 36 (handles both variables and numbers)
-          text = re.sub(r'compileSdk\s*=\s*.*', 'compileSdk = 36', text)
-          text = re.sub(r'compileSdkVersion\s*.*', 'compileSdkVersion 36', text)
-
-          # Enable desugaring in compileOptions
-          if "DesugaringEnabled" not in text:
-              flag = "        isCoreLibraryDesugaringEnabled = true" if is_kts else "        coreLibraryDesugaringEnabled true"
-              if "compileOptions {" in text:
-                  text = text.replace("compileOptions {", "compileOptions {\n" + flag, 1)
-              else:
-                  text = text.replace("android {", "android {\n    compileOptions {\n" + flag + "\n    }", 1)
-
-          # Add desugaring dependency
-          if "coreLibraryDesugaring" not in text:
-              dep = '    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")' if is_kts else "    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'"
-              if "dependencies {" in text:
-                  text = text.replace("dependencies {", "dependencies {\n    " + dep, 1)
-              else:
-                  text += "\ndependencies {\n" + dep + "\n}\n"
-          
-          path.write_text(text)
-
-          # 2. Patch root build.gradle to force ALL subprojects (plugins) to use SDK 36
+          # 3. Patch root build.gradle (Nuclear Fix)
           root_path = Path("android/build.gradle")
           if root_path.exists():
               root_text = root_path.read_text()
               override_block = """
-subprojects {
-    afterEvaluate { project ->
-        if (project.hasProperty('android')) {
-            project.android {
-                compileSdkVersion 36
-                buildToolsVersion "36.0.0"
-            }
-        }
-    }
-}
-"""
+          subprojects {
+              afterEvaluate { project ->
+                  if (project.hasProperty('android')) {
+                      project.android {
+                          compileSdkVersion 36
+                          buildToolsVersion "36.0.0"
+                      }
+                  }
+              }
+          }
+          """
               if "subprojects {" not in root_text:
                   root_text += override_block
                   root_path.write_text(root_text)
-          PY
+          EOF
+
+      - name: Run patch script
+        run: python3 patch_android.py
 
       - name: Clear Flutter Cache
         run: |
