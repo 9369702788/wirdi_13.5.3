@@ -66,7 +66,7 @@ class _AzkarScreenState extends State<AzkarScreen> with SingleTickerProviderStat
             icon: const Icon(Icons.favorite_outline),
             onPressed: () async {
               final categories = await _future.catchError((_) => <AzkarCategoryModel>[]);
-              if (!mounted) return;
+              if (!context.mounted) return;
               Navigator.push(
                 context,
                 MaterialPageRoute(

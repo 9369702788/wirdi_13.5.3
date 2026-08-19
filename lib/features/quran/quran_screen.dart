@@ -72,7 +72,7 @@ class _QuranScreenState extends State<QuranScreen> with SingleTickerProviderStat
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => SurahReaderScreen(
+          builder: (_) => const SurahReaderScreen(
             surah: surah,
             allSurahs: surahs,
             scrollToAyah: widget.initialAyah,
@@ -268,7 +268,7 @@ class _SurahListTabState extends State<_SurahListTab> {
                   trailing: const Icon(Icons.menu_book),
                   onTap: () => Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => SurahReaderScreen(surah: surah, allSurahs: widget.allSurahs)),
+                    MaterialPageRoute(builder: (_) => const SurahReaderScreen(surah: surah, allSurahs: widget.allSurahs)),
                   ),
                 ),
 
@@ -311,7 +311,7 @@ class _JuzListTab extends StatelessWidget {
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => SurahReaderScreen(surah: surah, allSurahs: allSurahs, scrollToAyah: juz.ayahNumber),
+                builder: (_) => const SurahReaderScreen(surah: surah, allSurahs: allSurahs, scrollToAyah: juz.ayahNumber),
               ),
             ),
           ),
@@ -391,7 +391,7 @@ class _AyahSearchTabState extends State<_AyahSearchTab> {
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => SurahReaderScreen(surah: surah, allSurahs: widget.allSurahs, scrollToAyah: ayah.number),
+                      builder: (_) => const SurahReaderScreen(surah: surah, allSurahs: widget.allSurahs, scrollToAyah: ayah.number),
                     ),
                   ),
                 ),
@@ -444,7 +444,7 @@ class _FavoritesTab extends StatelessWidget {
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => SurahReaderScreen(surah: surah, allSurahs: allSurahs, scrollToAyah: ayah.number),
+                    builder: (_) => const SurahReaderScreen(surah: surah, allSurahs: allSurahs, scrollToAyah: ayah.number),
                   ),
                 ),
               ),
@@ -461,7 +461,7 @@ class SurahReaderScreen extends StatefulWidget {
   final List<SurahModel> allSurahs;
   final int? scrollToAyah;
 
-  const SurahReaderScreen({super.key, required this.surah, required this.allSurahs, this.scrollToAyah});
+  const const SurahReaderScreen({super.key, required this.surah, required this.allSurahs, this.scrollToAyah});
 
   @override
   State<SurahReaderScreen> createState() => _SurahReaderScreenState();
