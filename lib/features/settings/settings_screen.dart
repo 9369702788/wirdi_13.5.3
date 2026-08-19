@@ -1,15 +1,8 @@
-import 'package:file_picker/file_picker.dart';
-import 'dart:io';
-import '../../core/services/backup_service.dart';
 import 'dart:async';
-import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' hide TextDirection;
-import '../../core/data/adhan_option.dart';
 import '../../core/services/audio_download_service.dart';
 import '../../core/services/azkar_repository.dart';
-import '../../core/services/notification_service.dart';
-import '../../core/services/daily_reminder_scheduler.dart';
 import '../../core/services/quran_repository.dart';
 import '../../core/services/settings_service.dart';
 import '../../core/services/user_progress_service.dart';
@@ -24,8 +17,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final AudioPlayer _previewPlayer = AudioPlayer();
-  String? _previewingAdhanId;
   DateTime? _quranCachedAt;
   DateTime? _azkarCachedAt;
   int _downloadedAudioBytes = 0;
@@ -35,14 +26,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _loadCacheInfo();
     _loadDownloadedAudioSize();
-    _previewPlayer.onPlayerComplete.listen((_) {
-      if (mounted) setState(() => _previewingAdhanId = null);
-    });
   }
 
   Future<void> _loadDownloadedAudioSize() async {
     final bytes = await AudioDownloadService.totalStorageUsedBytes();
-    if (mounted) setState(() => _downloadedAudioBytes = bytes);
+    if (context.mounted) setState(() => _downloadedAudioBytes = bytes);
   }
 
   String _downloadedAudioSize(AppLocalizations l10n) {
@@ -70,16 +58,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  @override
-  void dispose() {
-    _previewPlayer.dispose();
-    super.dispose();
-  }
-
   Future<void> _loadCacheInfo() async {
     final quranAt = await QuranRepository.cachedAt();
     final azkarAt = await AzkarRepository.cachedAt();
-    if (mounted) {
+    if (context.mounted) {
       setState(() {
         _quranCachedAt = quranAt;
         _azkarCachedAt = azkarAt;
@@ -112,7 +94,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (confirmed == true) {
       await UserProgressService.clearAllLocalData();
       await appSettings.load();
-      if (mounted) {
+      if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(l10n.settingsLocalDataDeleted)),
         );
@@ -311,6 +293,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context,
       showDragHandle: true,
       builder: (sheetContext) {
+        final currentLocale = appSettings.explicitLocale;
         return SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -322,17 +305,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: Text(l10n.settingsLanguage, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
                 ),
               ),
-              RadioListTile<bool>(
-                value: true,
-                groupValue: appSettings.explicitLocale == null,
+              RadioListTile<String?>(
+                value: null,
+                groupValue: currentLocale?.languageCode,
                 activeColor: AppColors.primaryEmerald,
                 title: Text(l10n.settingsLanguageSystem),
                 onChanged: (_) => Navigator.pop(sheetContext, const Locale('system')),
               ),
               for (final locale in AppSettings.supportedLocales)
-                RadioListTile<bool>(
-                  value: true,
-                  groupValue: appSettings.explicitLocale?.languageCode == locale.languageCode,
+                RadioListTile<String>(
+                  value: locale.languageCode,
+                  groupValue: currentLocale?.languageCode,
                   activeColor: AppColors.primaryEmerald,
                   title: Text(nameFor(locale)),
                   onChanged: (_) => Navigator.pop(sheetContext, locale),
