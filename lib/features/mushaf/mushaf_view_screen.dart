@@ -107,7 +107,7 @@ class _MushafViewScreenState extends State<MushafViewScreen> {
             },
             itemBuilder: (context, index) {
               final page = pages[index];
-              return const _MushafPageView(page: page, allSurahs: allSurahs);
+              return _MushafPageView(page: page, allSurahs: allSurahs);
             },
           );
         },
