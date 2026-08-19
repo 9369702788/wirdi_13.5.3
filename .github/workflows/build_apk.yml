@@ -80,7 +80,7 @@ jobs:
           path.write_text(text)
           PY
 
-      - name: Patch Android Gradle for SDK 36 and desugaring
+- name: Patch Android Gradle for SDK 36 and desugaring
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -92,32 +92,40 @@ jobs:
           text = path.read_text()
           is_kts = path.suffix == ".kts"
 
-          # Force compileSdk 36
+          # 1. Force compileSdk 36
           if is_kts:
-              text = re.sub(r'compileSdk = [0-9]+', 'compileSdk = 36', text)
+              text = re.sub('compileSdk *= *[0-9]+', 'compileSdk = 36', text)
           else:
-              text = re.sub(r'compileSdkVersion [0-9]+', 'compileSdkVersion 36', text)
+              text = re.sub('compileSdkVersion *[0-9]+', 'compileSdkVersion 36', text)
 
-          # Enable desugaring
-          if "isCoreLibraryDesugaringEnabled" not in text and "coreLibraryDesugaringEnabled" not in text:
-              flag_line = (
-                  "        isCoreLibraryDesugaringEnabled = true\n"
-                  if is_kts
-                  else "        coreLibraryDesugaringEnabled true\n"
-              )
-              text = text.replace("compileOptions {\n", "compileOptions {\n" + flag_line, 1)
+          # 2. Enable desugaring in compileOptions
+          if "DesugaringEnabled" not in text:
+              flag = "        isCoreLibraryDesugaringEnabled = true" if is_kts else "        coreLibraryDesugaringEnabled true"
+              if "compileOptions {" in text:
+                  text = text.replace("compileOptions {", "compileOptions {
+" + flag, 1)
+              else:
+                  text = text.replace("android {", "android {
+    compileOptions {
+" + flag + "
+    }", 1)
 
-          if "coreLibraryDesugaring(" not in text and "coreLibraryDesugaring " not in text:
-              dep_line = (
-                  '    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")\n'
-                  if is_kts
-                  else "    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'\n"
-              )
-              if "\ndependencies {" in text:
-                  text = text.replace("\ndependencies {", "\ndependencies {\n" + dep_line, 1)
+          # 3. Add desugaring dependency
+          if "coreLibraryDesugaring" not in text:
+              dep = '    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")' if is_kts else "    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'"
+              if "dependencies {" in text:
+                  text = text.replace("dependencies {", "dependencies {
+" + dep, 1)
+              else:
+                  text += "
+dependencies {
+" + dep + "
+}
+"
           
           path.write_text(text)
           PY
+
       - name: Clear Flutter Cache
         run: |
           flutter pub cache clean --force || true
