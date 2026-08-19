@@ -106,7 +106,7 @@ jobs:
               if "dependencies {" in text:
                   text = text.replace("dependencies {", "dependencies {\n    " + dep, 1)
               else:
-                  text += "\ndependencies {\n    " + dep + "\n}\n"
+                  text += "\ndependencies {\n" + dep + "\n}\n"
           
           path.write_text(text)
           PY
