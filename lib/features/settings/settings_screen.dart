@@ -34,8 +34,7 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  bool get mounted => super.mounted;
-  
+  int _wirdTarget = 5;
   final AudioPlayer _previewPlayer = AudioPlayer();
   String? _previewingAdhanId;
   DateTime? _quranCachedAt;
@@ -49,13 +48,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _loadCacheInfo();
     _loadDownloadedAudioSize();
     _previewPlayer.onPlayerComplete.listen((_) {
-      if (mounted) setState(() => _previewingAdhanId = null);
+      if (context.mounted) setState(() => _previewingAdhanId = null);
     });
   }
 
   Future<void> _loadDownloadedAudioSize() async {
     final bytes = await AudioDownloadService.totalStorageUsedBytes();
-    if (mounted) setState(() => _downloadedAudioBytes = bytes);
+    if (context.mounted) setState(() => _downloadedAudioBytes = bytes);
   }
 
   String _downloadedAudioSize(AppLocalizations l10n) {
@@ -105,7 +104,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
       await _previewPlayer.play(UrlSource(option.url));
     } catch (e) {
-      if (mounted) {
+      if (context.mounted) {
         setState(() => _previewingAdhanId = null);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(AppLocalizations.of(context).settingsPreviewFailed)),
@@ -117,7 +116,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadCacheInfo() async {
     final quranAt = await QuranRepository.cachedAt();
     final azkarAt = await AzkarRepository.cachedAt();
-    if (mounted) {
+    if (context.mounted) {
       setState(() {
         _quranCachedAt = quranAt;
         _azkarCachedAt = azkarAt;
@@ -132,13 +131,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return DateFormat('d MMMM y, h:mm a', languageCode).format(date);
   }
 
-  
-
-  Future<void> _setWirdTarget(int value) async {
-    if (value < 1) return;
-    await UserProgressService.setDailyWirdTarget(value);
-    setState(() => _wirdTarget = value);
+  Future<void> _loadWirdTarget() async {
+    final target = await UserProgressService.dailyWirdTarget();
+    if (context.mounted) setState(() => _wirdTarget = target);
   }
+
+  
 
   Future<void> _confirmClearData() async {
     final l10n = AppLocalizations.of(context);
@@ -160,7 +158,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (confirmed == true) {
       await UserProgressService.clearAllLocalData();
       await appSettings.load();
-      if (mounted) {
+      if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(l10n.settingsLocalDataDeleted)),
         );
@@ -255,7 +253,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           final file = File(result.files.single.path!);
                           final jsonString = await file.readAsString();
                           final success = await BackupService.importBackup(jsonString);
-                          if (mounted) {
+                          if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(content: Text(success ? l10n.settingsImportSuccess : l10n.settingsImportError)),
                             );
@@ -292,7 +290,7 @@ _SectionLabel(l10n.settingsDataManagement),
                         await QuranRepository.load(forceRefresh: true);
                         await AzkarRepository.load(forceRefresh: true);
                         await _loadCacheInfo();
-                        if (mounted) {
+                        if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(content: Text(l10n.settingsDataUpdated)),
                           );
@@ -336,7 +334,7 @@ _SectionLabel(l10n.settingsDataManagement),
                         );
                         if (confirmed == true) {
                           await UserProgressService.resetKhatmaProgress();
-                          if (mounted) {
+                          if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(content: Text(l10n.settingsKhatmaResetDone)),
                             );
@@ -364,18 +362,7 @@ _SectionLabel(l10n.settingsDataManagement),
   /// dedicated "was it dismissed or was System default tapped" signal
   /// (a sentinel Locale) since both map to `null` from Navigator.pop
   /// otherwise.
-  Future<void> _showLanguageSheet(BuildContext context, AppLocalizations l10n) async {
-    String nameFor(Locale locale) {
-      switch (locale.languageCode) {
-        case 'ar':
-          return l10n.languageName_ar;
-        case 'de':
-          return l10n.languageName_de;
-        case 'tr':
-          return l10n.languageName_tr;
-        default:
-          return l10n.languageName_en;
-      }
+  
     }
 
     final choice = await showModalBottomSheet<Locale>(
