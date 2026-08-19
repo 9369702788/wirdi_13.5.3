@@ -1,30 +1,20 @@
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
-
 import '../../core/services/backup_service.dart';
 import 'dart:async';
-
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
-
 import 'package:intl/intl.dart' hide TextDirection;
-
-
 import '../../core/data/adhan_option.dart';
 import '../../core/services/audio_download_service.dart';
 import '../../core/services/azkar_repository.dart';
 import '../../core/services/notification_service.dart';
-
 import '../../core/services/daily_reminder_scheduler.dart';
 import '../../core/services/quran_repository.dart';
 import '../../core/services/settings_service.dart';
 import '../../core/services/user_progress_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../l10n/generated/app_localizations.dart';
-
-
-
-
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -34,7 +24,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  int _wirdTarget = 5;
   final AudioPlayer _previewPlayer = AudioPlayer();
   String? _previewingAdhanId;
   DateTime? _quranCachedAt;
@@ -44,17 +33,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    _loadWirdTarget();
     _loadCacheInfo();
     _loadDownloadedAudioSize();
     _previewPlayer.onPlayerComplete.listen((_) {
-      if (context.mounted) setState(() => _previewingAdhanId = null);
+      if (mounted) setState(() => _previewingAdhanId = null);
     });
   }
 
   Future<void> _loadDownloadedAudioSize() async {
     final bytes = await AudioDownloadService.totalStorageUsedBytes();
-    if (context.mounted) setState(() => _downloadedAudioBytes = bytes);
+    if (mounted) setState(() => _downloadedAudioBytes = bytes);
   }
 
   String _downloadedAudioSize(AppLocalizations l10n) {
@@ -88,35 +76,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.dispose();
   }
 
-   catch (_) {
-        // Nothing loaded — fine.
-      }
-      setState(() => _previewingAdhanId = null);
-      return;
-    }
-
-    setState(() => _previewingAdhanId = option.id);
-    try {
-      try {
-        await _previewPlayer.stop();
-      } catch (_) {
-        // Nothing loaded yet — expected on first preview, safe to ignore.
-      }
-      await _previewPlayer.play(UrlSource(option.url));
-    } catch (e) {
-      if (context.mounted) {
-        setState(() => _previewingAdhanId = null);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context).settingsPreviewFailed)),
-        );
-      }
-    }
-  }
-
   Future<void> _loadCacheInfo() async {
     final quranAt = await QuranRepository.cachedAt();
     final azkarAt = await AzkarRepository.cachedAt();
-    if (context.mounted) {
+    if (mounted) {
       setState(() {
         _quranCachedAt = quranAt;
         _azkarCachedAt = azkarAt;
@@ -126,17 +89,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   String _formatCacheDate(DateTime? date, String languageCode, AppLocalizations l10n) {
     if (date == null) return l10n.settingsNotDownloadedYet;
-    // Falls back to 'en' formatting for locales without an intl date
-    // pattern registered (all four we ship are registered in main.dart).
     return DateFormat('d MMMM y, h:mm a', languageCode).format(date);
   }
-
-  Future<void> _loadWirdTarget() async {
-    final target = await UserProgressService.dailyWirdTarget();
-    if (context.mounted) setState(() => _wirdTarget = target);
-  }
-
-  
 
   Future<void> _confirmClearData() async {
     final l10n = AppLocalizations.of(context);
@@ -158,7 +112,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (confirmed == true) {
       await UserProgressService.clearAllLocalData();
       await appSettings.load();
-      if (context.mounted) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(l10n.settingsLocalDataDeleted)),
         );
@@ -244,29 +198,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 }[appSettings.explicitLocale!.languageCode] ?? '',
                           style: const TextStyle(color: AppColors.mutedText),
                         ),
-                        onTap: () async {
-                        final result = await FilePicker.platform.pickFiles(
-                          type: FileType.custom,
-                          allowedExtensions: ['json'],
-                        );
-                        if (result != null && result.files.single.path != null) {
-                          final file = File(result.files.single.path!);
-                          final jsonString = await file.readAsString();
-                          final success = await BackupService.importBackup(jsonString);
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(success ? l10n.settingsImportSuccess : l10n.settingsImportError)),
-                            );
-                          }
-                        }
-                      },
-                    ),
-                  ],
+                        onTap: () => _showLanguageSheet(context, l10n),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
               const SizedBox(height: 20),
-_SectionLabel(l10n.settingsDataManagement),
+              _SectionLabel(l10n.settingsDataManagement),
               Card(
                 child: Column(
                   children: [
@@ -358,11 +297,14 @@ _SectionLabel(l10n.settingsDataManagement),
     );
   }
 
-  /// Shows the language picker sheet and applies the choice. Uses a
-  /// dedicated "was it dismissed or was System default tapped" signal
-  /// (a sentinel Locale) since both map to `null` from Navigator.pop
-  /// otherwise.
-  
+  Future<void> _showLanguageSheet(BuildContext context, AppLocalizations l10n) async {
+    String nameFor(Locale locale) {
+      switch (locale.languageCode) {
+        case 'ar': return l10n.languageName_ar;
+        case 'de': return l10n.languageName_de;
+        case 'tr': return l10n.languageName_tr;
+        default: return l10n.languageName_en;
+      }
     }
 
     final choice = await showModalBottomSheet<Locale>(
@@ -402,9 +344,9 @@ _SectionLabel(l10n.settingsDataManagement),
       },
     );
 
-    if (choice == null) return; // sheet dismissed without a tap
+    if (choice == null) return;
     if (choice.languageCode == 'system') {
-      await appSettings.setLocale(null); // "System default"
+      await appSettings.setLocale(null);
     } else {
       await appSettings.setLocale(choice);
     }
@@ -419,65 +361,7 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
-      child: Text(
-        text,
-        style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.mutedText, fontSize: 13),
-      ),
-    );
-  }
-}
-
-
-);
-
-  String _formatTime(BuildContext context, int hour, int minute) {
-    return TimeOfDay(hour: hour, minute: minute).format(context);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final setting = appSettings.dailyReminder(reminderKey);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: Text(title),
-          subtitle: Text(subtitle),
-          value: setting.enabled,
-          activeTrackColor: AppColors.primaryEmerald,
-          onChanged: (value) async {
-            final l10n = AppLocalizations.of(context);
-            await appSettings.setDailyReminder(reminderKey, setting.copyWith(enabled: value));
-            unawaited(DailyReminderScheduler.rescheduleAll(l10n));
-            if (value) {
-              unawaited(NotificationService.requestPermission());
-            }
-          },
-        ),
-        if (setting.enabled)
-          Padding(
-            padding: const EdgeInsets.only(left: 16, bottom: 4),
-            child: OutlinedButton.icon(
-              onPressed: () async {
-                final picked = await showTimePicker(
-                  context: context,
-                  initialTime: TimeOfDay(hour: setting.hour, minute: setting.minute),
-                );
-                if (picked == null) return;
-                if (!context.mounted) return;
-                final l10n = AppLocalizations.of(context);
-                await appSettings.setDailyReminder(
-                  reminderKey,
-                  setting.copyWith(hour: picked.hour, minute: picked.minute),
-                );
-                unawaited(DailyReminderScheduler.rescheduleAll(l10n));
-              },
-              icon: const Icon(Icons.access_time_outlined),
-              label: Text(_formatTime(context, setting.hour, setting.minute)),
-            ),
-          ),
-      ],
+      child: Text(text, style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.mutedText, fontSize: 13)),
     );
   }
 }
