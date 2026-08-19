@@ -58,7 +58,7 @@ jobs:
           if "android.permission.INTERNET" not in text:
               text = text.replace(
                   '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
-                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n' + permissions,
+                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\\n' + permissions,
               )
 
           queries_block = """
@@ -80,76 +80,52 @@ jobs:
           path.write_text(text)
           PY
 
-      - name: Patch Android compileSdk for plugin compatibility
+- name: Patch Android Gradle for SDK 36 and desugaring
         run: |
           python3 - <<'PY'
+          from pathlib import Path
           import re
-          from pathlib import Path
 
-          # file_picker's transitive dependency (flutter_plugin_android_lifecycle)
-          # requires compiling against API 36+. Flutter's own default
-          # `flutter.compileSdkVersion` currently resolves lower than that, so
-          # we bump the app module's compileSdk explicitly here -- this runs
-          # AFTER `flutter create` regenerates build.gradle.kts fresh every
-          # time, so it stays self-healing instead of a stale committed file.
           kts_path = Path("android/app/build.gradle.kts")
           groovy_path = Path("android/app/build.gradle")
           path = kts_path if kts_path.exists() else groovy_path
           text = path.read_text()
           is_kts = path.suffix == ".kts"
 
+          # Force compileSdk 36
           if is_kts:
-              text, n = re.subn(
-                  r"compileSdk\s*=\s*flutter\.compileSdkVersion",
-                  "compileSdk = maxOf(36, flutter.compileSdkVersion)",
-                  text,
-              )
+              text = re.sub(r'compileSdk = [0-9]+', 'compileSdk = 36', text)
           else:
-              text, n = re.subn(
-                  r"compileSdkVersion\s+flutter\.compileSdkVersion",
-                  "compileSdkVersion Math.max(36, flutter.compileSdkVersion as int)",
-                  text,
-              )
+              text = re.sub(r'compileSdkVersion [0-9]+', 'compileSdkVersion 36', text)
 
-          path.write_text(text)
-          print(f"Patched compileSdk in {path} ({n} replacement(s))")
-          PY
-
-      - name: Patch Android Gradle for core library desugaring
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          # flutter_local_notifications requires Android core library
-          # desugaring to be enabled in the app module. `flutter create`
-          # emits Kotlin DSL (build.gradle.kts) on current stable, but
-          # this handles the older Groovy format too in case that ever
-          # changes upstream.
-          kts_path = Path("android/app/build.gradle.kts")
-          groovy_path = Path("android/app/build.gradle")
-          path = kts_path if kts_path.exists() else groovy_path
-          text = path.read_text()
-          is_kts = path.suffix == ".kts"
-
+          # Enable desugaring
           if "isCoreLibraryDesugaringEnabled" not in text and "coreLibraryDesugaringEnabled" not in text:
               flag_line = (
-                  "        isCoreLibraryDesugaringEnabled = true\n"
+                  "        isCoreLibraryDesugaringEnabled = true
+"
                   if is_kts
-                  else "        coreLibraryDesugaringEnabled true\n"
+                  else "        coreLibraryDesugaringEnabled true
+"
               )
-              text = text.replace("compileOptions {\n", "compileOptions {\n" + flag_line, 1)
+              text = text.replace("compileOptions {
+", "compileOptions {
+" + flag_line, 1)
 
           if "coreLibraryDesugaring(" not in text and "coreLibraryDesugaring " not in text:
               dep_line = (
-                  '    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")\n'
+                  '    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+'
                   if is_kts
-                  else "    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'\n"
+                  else "    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
+"
               )
-              if "\ndependencies {" in text:
-                  text = text.replace("\ndependencies {", "\ndependencies {\n" + dep_line, 1)
-              else:
-                  text += "\ndependencies {\n" + dep_line + "}\n"
-
+              if "
+dependencies {" in text:
+                  text = text.replace("
+dependencies {", "
+dependencies {
+" + dep_line, 1)
+          
           path.write_text(text)
           PY
 
