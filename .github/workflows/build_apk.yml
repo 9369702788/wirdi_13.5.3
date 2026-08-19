@@ -43,7 +43,7 @@ jobs:
           from pathlib import Path
           path = Path("android/app/src/main/AndroidManifest.xml")
           text = path.read_text()
-          permissions = \"\"\"
+          permissions = """
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
               <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -51,13 +51,13 @@ jobs:
               <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
               <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
               <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-          \"\"\"
+          """
           if "android.permission.INTERNET" not in text:
               text = text.replace(
                   '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
-                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\\n' + permissions,
+                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n' + permissions,
               )
-          queries_block = \"\"\"
+          queries_block = """
               <queries>
                   <intent>
                       <action android:name="android.intent.action.VIEW" />
@@ -68,7 +68,7 @@ jobs:
                       <data android:scheme="geo" />
                   </intent>
               </queries>
-          \"\"\"
+          """
           if "<queries>" not in text:
               text = text.replace("</manifest>", queries_block + "</manifest>")
           path.write_text(text)
