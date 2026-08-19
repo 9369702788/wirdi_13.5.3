@@ -6,25 +6,25 @@ import 'dart:async';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+
 import 'package:intl/intl.dart' hide TextDirection;
 
-import '../../core/data/app_sources.dart';
+
 import '../../core/data/adhan_option.dart';
 import '../../core/services/audio_download_service.dart';
 import '../../core/services/azkar_repository.dart';
 import '../../core/services/notification_service.dart';
-import '../../core/services/prayer_display.dart';
+
 import '../../core/services/daily_reminder_scheduler.dart';
 import '../../core/services/quran_repository.dart';
 import '../../core/services/settings_service.dart';
 import '../../core/services/user_progress_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../l10n/generated/app_localizations.dart';
-import 'about_screen.dart';
-import 'privacy_center_screen.dart';
-import 'privacy_policy_screen.dart';
-import 'sources_licenses_screen.dart';
+
+
+
+
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -34,7 +34,7 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  int _wirdTarget = 5;
+  
   final AudioPlayer _previewPlayer = AudioPlayer();
   String? _previewingAdhanId;
   DateTime? _quranCachedAt;
@@ -447,11 +447,7 @@ class _SectionLabel extends StatelessWidget {
 }
 
 
-class _DailyReminderTile extends StatelessWidget {
-  final String reminderKey;
-  final String title;
-  final String subtitle;
-  const _DailyReminderTile({required this.reminderKey, required this.title, required this.subtitle});
+);
 
   String _formatTime(BuildContext context, int hour, int minute) {
     return TimeOfDay(hour: hour, minute: minute).format(context);
@@ -488,7 +484,7 @@ class _DailyReminderTile extends StatelessWidget {
                   initialTime: TimeOfDay(hour: setting.hour, minute: setting.minute),
                 );
                 if (picked == null) return;
-                if (!context.mounted) return;
+                if (!mounted) return;
                 final l10n = AppLocalizations.of(context);
                 await appSettings.setDailyReminder(
                   reminderKey,
